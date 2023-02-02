@@ -31,6 +31,10 @@ var mimeMap = map[string]string{
 	"image/png":       ".png",
 	"application/pdf": ".pdf",
 	"video/mp4":       ".mp4",
+	"text/csv":        ".csv",
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   ".docx",
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         ".xlsx",
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation": "ppt",
 }
 
 var mimeLimits = map[string]int64{
@@ -39,6 +43,9 @@ var mimeLimits = map[string]int64{
 	"image/png":       0,
 	"application/pdf": 2,
 	"video/mp4":       0,
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   10,
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         1,
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation": 1,
 }
 
 var dataUsage = make(map[string]float64)
@@ -58,13 +65,12 @@ func ParseData(filePath string, mimeTypes []string, maxConcurrent int) {
 			line = line[i:]
 			var r record
 			if err := json.Unmarshal([]byte(line), &r); err != nil {
-				fmt.Println("Line:", line)
-				fmt.Println("Error parsing JSON:", err)
+				//fmt.Println("Error parsing JSON:", err)
 				continue
 			}
 			for _, mime := range mimeTypes {
 				// check if mime exceeds limit
-				mimeTypes = checkMimeTypesLimits(mimeTypes, mime, &wg)
+				//mimeTypes = checkMimeTypesLimits(mimeTypes, mime, &wg)
 				if r.MimeDetected == mime && r.Status == "200" {
 					// fmt.Println("Mime:", r.Mime)
 					// fmt.Println("MimeDetected:", r.MimeDetected)
@@ -78,7 +84,6 @@ func ParseData(filePath string, mimeTypes []string, maxConcurrent int) {
 						downloadFile(url, mime, sem)
 						<-sem
 					}(r.URL, r.MimeDetected, sem)
-					log.Println("Data usage:", dataUsage)
 					break
 				}
 			}
@@ -120,18 +125,21 @@ func downloadFile(url string, mime string, sem chan struct{}) {
 	// Defer the file name from the URL and use mime type to determine file extension and path
 	urlSegments := strings.Split(url, "/")
 	fileName := urlSegments[len(urlSegments)-1]
-	filePath := filepath.Join("data", mime, fileName)
-	folderPath := filepath.Join("data", mime)
-
+	// Generate random filename
+	//fileName := uuid.New().String()
 	// If the file name does not have an extension, use the mime type to determine the extension
 	fileExt := filepath.Ext(fileName)
 	if fileExt == "" {
 		fileExt = mimeMap[mime]
-		if fileExt == "" {
-			fileExt = ".bin"
-		}
 		fileName = fileName + fileExt
+	} else {
+		// strip the file extension and replace it
+		strippedFileName := strings.TrimSuffix(fileName, fileExt)
+		fileExt = mimeMap[mime]
+		fileName = strippedFileName + fileExt
 	}
+	filePath := filepath.Join("data", mime, fileName)
+	folderPath := filepath.Join("data", mime)
 
 	// Create the folder if it does not exist
 	if _, err := os.Stat(folderPath); os.IsNotExist(err) {
@@ -155,9 +163,9 @@ func downloadFile(url string, mime string, sem chan struct{}) {
 		return
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
-	dataUsage[mime] += float64(response.ContentLength) / (1024 * 1024)
+	// mu.Lock()
+	// defer mu.Unlock()
+	// dataUsage[mime] += float64(response.ContentLength) / (1024 * 1024)
 
 	log.Println("Downloaded file:", filePath)
 
