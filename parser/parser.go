@@ -40,9 +40,9 @@ var mimeMap = map[string]string{
 
 var mimeLimits = map[string]int64{
 	"image/jpeg":      0,
-	"image/jpg":       40,
-	"image/png":       0,
-	"application/pdf": 10,
+	"image/jpg":       10, // It seems nothing is being detected as jpg, use jpeg instead
+	"image/png":       1000,
+	"application/pdf": 1000,
 	"video/mp4":       0,
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   10,
 	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         1,
@@ -76,6 +76,13 @@ func ParseData(filePath string, mimeTypes []string, maxConcurrent int) {
 				// check if mime exceeds limit
 				mimeTypes = checkMimeTypesLimits(mimeTypes, mime, &wg, &c)
 				if r.MimeDetected == mime && r.Status == "200" {
+					// check if r.Language exists and is not english
+					if r.Languages != "" && r.Languages != "eng" {
+						log.Println("Mime type", mime, "is not english. Skipping.", r.Languages)
+						break
+					}
+					// start a goroutine to download file. Semaphore is used to limit the number of active goroutines
+					log.Println("Language", r.Languages)
 					wg.Add(1)
 					sem <- struct{}{}
 					go func(url string, mime string, sem chan struct{}) {
@@ -154,13 +161,6 @@ func downloadFile(url string, mime string, sem chan struct{}, c *Container) {
 		return
 	}
 
-	// DEBUG CODE
-	if filePath == "data/application/pdf/ACR_Workshop_1-4_slides.pdf" {
-		log.Println("DEBUG CODE: Writing file to disk")
-		filePath = "data/debug/ACR_Workshop_1-4_slides.pdf"
-	}
-	// END DEBUG CODE
-
 	// write contents to file
 	err = ioutil.WriteFile(filePath, contents, 0644)
 	if err != nil {
@@ -168,6 +168,7 @@ func downloadFile(url string, mime string, sem chan struct{}, c *Container) {
 		return
 	}
 
+	// Update data usage
 	c.mu.Lock()
 	c.dataUsage[mime] += float64(response.ContentLength) / (1024 * 1024)
 	c.mu.Unlock()
