@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -126,14 +127,14 @@ func downloadFile(url string, mime string, sem chan struct{}, c *Container) {
 	urlSegments := strings.Split(url, "/")
 	fileName := urlSegments[len(urlSegments)-1]
 	// Give the file the correct extension
-	fileExt := filepath.Ext(fileName)
-	if fileExt == "" {
-		fileExt = mimeMap[mime]
+	originalFileExt := filepath.Ext(fileName)
+	if originalFileExt == "" {
+		fileExt := mimeMap[mime]
 		fileName = fileName + fileExt
 	} else {
 		// strip the file extension and replace it
-		strippedFileName := strings.TrimSuffix(fileName, fileExt)
-		fileExt = mimeMap[mime]
+		strippedFileName := strings.TrimSuffix(fileName, originalFileExt)
+		fileExt := mimeMap[mime]
 		fileName = strippedFileName + fileExt
 	}
 	filePath := filepath.Join("data", mime, fileName)
@@ -147,6 +148,10 @@ func downloadFile(url string, mime string, sem chan struct{}, c *Container) {
 		}
 	}
 
+	if originalFileExt == ".ashx" {
+		handleASHXFile(*response, filePath, mime, c)
+		return
+	}
 	// Create the file
 	file, err := os.Create(filePath)
 	if err != nil {
@@ -166,4 +171,23 @@ func downloadFile(url string, mime string, sem chan struct{}, c *Container) {
 	c.mu.Unlock()
 	log.Println("Downloaded file:", filePath)
 
+}
+
+func handleASHXFile(response http.Response, mime string, filePath string, c *Container) {
+	contents, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		log.Println("Error reading response body:", err)
+		return
+	}
+	// write contents to file
+	err = ioutil.WriteFile(filePath, contents, 0644)
+	if err != nil {
+		log.Println("Error writing file:", err)
+		return
+	}
+
+	c.mu.Lock()
+	c.dataUsage[mime] += float64(response.ContentLength) / (1024 * 1024)
+	c.mu.Unlock()
+	log.Println("Downloaded file:", filePath)
 }
