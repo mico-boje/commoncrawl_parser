@@ -148,41 +148,23 @@ func downloadFile(url string, mime string, sem chan struct{}, c *Container) {
 		}
 	}
 
-	if originalFileExt == ".ashx" {
-		handleASHXFile(*response, filePath, mime, c)
-		return
-	}
-	// Create the file
-	file, err := os.Create(filePath)
-	if err != nil {
-		fmt.Println("Error creating file:", err)
-	}
-	defer file.Close()
-
-	// Write the response body to the file
-	_, err = file.ReadFrom(response.Body)
-	if err != nil {
-		fmt.Println("Error reading file:", err)
-		return
-	}
-
-	c.mu.Lock()
-	c.dataUsage[mime] += float64(response.ContentLength) / (1024 * 1024)
-	c.mu.Unlock()
-	log.Println("Downloaded file:", filePath)
-
-}
-
-func handleASHXFile(response http.Response, mime string, filePath string, c *Container) {
 	contents, err := ioutil.ReadAll(response.Body)
 	if err != nil {
 		log.Println("Error reading response body:", err)
 		return
 	}
+
+	// DEBUG CODE
+	if filePath == "data/application/pdf/ACR_Workshop_1-4_slides.pdf" {
+		log.Println("DEBUG CODE: Writing file to disk")
+		filePath = "data/debug/ACR_Workshop_1-4_slides.pdf"
+	}
+	// END DEBUG CODE
+
 	// write contents to file
 	err = ioutil.WriteFile(filePath, contents, 0644)
 	if err != nil {
-		log.Println("Error writing file:", err)
+		log.Println("Error writing file:", filePath, err)
 		return
 	}
 
