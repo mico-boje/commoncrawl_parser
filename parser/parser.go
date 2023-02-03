@@ -39,21 +39,24 @@ var mimeMap = map[string]string{
 
 var mimeLimits = map[string]int64{
 	"image/jpeg":      0,
-	"image/jpg":       0,
+	"image/jpg":       40,
 	"image/png":       0,
-	"application/pdf": 2,
+	"application/pdf": 10,
 	"video/mp4":       0,
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   10,
 	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         1,
 	"application/vnd.openxmlformats-officedocument.presentationml.presentation": 1,
 }
 
-var dataUsage = make(map[string]float64)
-var mu sync.Mutex
+type Container struct {
+	mu        sync.RWMutex
+	dataUsage map[string]float64
+}
 
 func ParseData(filePath string, mimeTypes []string, maxConcurrent int) {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, maxConcurrent)
+	c := Container{dataUsage: make(map[string]float64)}
 
 	file, _ := os.Open(filePath)
 	defer file.Close()
@@ -70,18 +73,13 @@ func ParseData(filePath string, mimeTypes []string, maxConcurrent int) {
 			}
 			for _, mime := range mimeTypes {
 				// check if mime exceeds limit
-				//mimeTypes = checkMimeTypesLimits(mimeTypes, mime, &wg)
+				mimeTypes = checkMimeTypesLimits(mimeTypes, mime, &wg, &c)
 				if r.MimeDetected == mime && r.Status == "200" {
-					// fmt.Println("Mime:", r.Mime)
-					// fmt.Println("MimeDetected:", r.MimeDetected)
-					// fmt.Println("Filename:", r.Filename)
-					// fmt.Println("Status:", r.Status)
-					// fmt.Println("URL:", r.URL)
 					wg.Add(1)
 					sem <- struct{}{}
 					go func(url string, mime string, sem chan struct{}) {
 						defer wg.Done()
-						downloadFile(url, mime, sem)
+						downloadFile(url, mime, sem, &c)
 						<-sem
 					}(r.URL, r.MimeDetected, sem)
 					break
@@ -91,9 +89,10 @@ func ParseData(filePath string, mimeTypes []string, maxConcurrent int) {
 	}
 }
 
-func checkMimeTypesLimits(mimeTypes []string, mime string, wg *sync.WaitGroup) []string {
+func checkMimeTypesLimits(mimeTypes []string, mime string, wg *sync.WaitGroup, c *Container) []string {
 	// if mime exceeds limit remove it from mimeTypes
-	if dataUsage[mime] > float64(mimeLimits[mime]) {
+	c.mu.RLock()
+	if c.dataUsage[mime] > float64(mimeLimits[mime]) {
 		for i, m := range mimeTypes {
 			if m == mime {
 				mimeTypes = append(mimeTypes[:i], mimeTypes[i+1:]...)
@@ -102,6 +101,7 @@ func checkMimeTypesLimits(mimeTypes []string, mime string, wg *sync.WaitGroup) [
 			}
 		}
 	}
+	c.mu.RUnlock()
 	// if mimeTypes is empty, exit program
 	if len(mimeTypes) == 0 {
 		log.Println("All mime types exceeded limit. Exiting program.")
@@ -111,7 +111,7 @@ func checkMimeTypesLimits(mimeTypes []string, mime string, wg *sync.WaitGroup) [
 	return mimeTypes
 }
 
-func downloadFile(url string, mime string, sem chan struct{}) {
+func downloadFile(url string, mime string, sem chan struct{}, c *Container) {
 	log.Println("Downloading file:", url)
 
 	//HTTP GET the file
@@ -125,9 +125,7 @@ func downloadFile(url string, mime string, sem chan struct{}) {
 	// Defer the file name from the URL and use mime type to determine file extension and path
 	urlSegments := strings.Split(url, "/")
 	fileName := urlSegments[len(urlSegments)-1]
-	// Generate random filename
-	//fileName := uuid.New().String()
-	// If the file name does not have an extension, use the mime type to determine the extension
+	// Give the file the correct extension
 	fileExt := filepath.Ext(fileName)
 	if fileExt == "" {
 		fileExt = mimeMap[mime]
@@ -163,10 +161,9 @@ func downloadFile(url string, mime string, sem chan struct{}) {
 		return
 	}
 
-	// mu.Lock()
-	// defer mu.Unlock()
-	// dataUsage[mime] += float64(response.ContentLength) / (1024 * 1024)
-
+	c.mu.Lock()
+	c.dataUsage[mime] += float64(response.ContentLength) / (1024 * 1024)
+	c.mu.Unlock()
 	log.Println("Downloaded file:", filePath)
 
 }
