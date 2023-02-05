@@ -17,7 +17,7 @@ import (
 
 func main() {
 	c := utils.Container{Mu: sync.RWMutex{}, DataUsage: make(map[string]float64)}
-	allowedMimes := []string{"application/pdf"}
+	allowedMimes := []string{"application/pdf", "image/jpeg", "image/png"}
 	var threads int
 	fmt.Println("Enter number of threads")
 	fmt.Scanln(&threads)

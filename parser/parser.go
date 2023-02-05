@@ -40,9 +40,9 @@ var mimeMap = map[string]string{
 }
 
 var mimeLimits = map[string]int64{
-	"image/jpeg":      0,
-	"image/jpg":       1, // It seems nothing is being detected as jpg, use jpeg instead
-	"image/png":       1,
+	"image/jpeg":      10,
+	"image/jpg":       0, // It seems nothing is being detected as jpg, use jpeg instead
+	"image/png":       10,
 	"application/pdf": 1,
 	"video/mp4":       0,
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   10,
@@ -67,6 +67,7 @@ func ParseData(filePath string, mimeTypes []string, maxConcurrent int, c *utils.
 				//fmt.Println("Error parsing JSON:", err)
 				continue
 			}
+			// Validate the URL based on the rules in utils.ValidateURL
 			for _, mime := range mimeTypes {
 				// check if mime exceeds limit
 				mimeTypes = checkMimeTypesLimits(mimeTypes, mime, &wg, c)
@@ -115,6 +116,11 @@ func checkMimeTypesLimits(mimeTypes []string, mime string, wg *sync.WaitGroup, c
 }
 
 func downloadFile(url string, mime string, sem chan struct{}, c *utils.Container) {
+	err := utils.ValidateURL(url)
+	if err != nil {
+		//log.Println(err)
+		return
+	}
 	log.Println("Downloading file:", url)
 
 	//HTTP GET the file
