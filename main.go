@@ -3,19 +3,24 @@ package main
 import (
 	//"commoncrawl_scraper/parser"
 	"bytes"
+	"commoncrawl_scraper/parser"
+	"commoncrawl_scraper/utils"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 )
 
-// import "commoncrawl_scraper/parser"
-
 func main() {
-	//parser.ParseData("data/indexes/cdx-00000.gz")
-	// output := aws_ls("s3://commoncrawl/cc-index/collections/", "2")
+	c := utils.Container{Mu: sync.RWMutex{}, DataUsage: make(map[string]float64)}
+	allowedMimes := []string{"application/pdf"}
+	var threads int
+	fmt.Println("Enter number of threads")
+	fmt.Scanln(&threads)
 
 	collections := get_collections()
 	for _, line := range collections {
@@ -24,9 +29,19 @@ func main() {
 			file_full_path := fmt.Sprintf("s3://commoncrawl/cc-index/collections/%sindexes/%s", line, file)
 			download_file(file_full_path)
 			gzip_decompress(filepath.Join("data/indexes/", file))
-			break
+			file = filepath.Join("data/indexes/", strings.TrimSuffix(file, filepath.Ext(file)))
+			log.Println("Parsing file:", file)
+			allowedMimes = parser.ParseData(file, allowedMimes, threads, &c)
+			removeFile(file)
 		}
-		break
+	}
+}
+
+func removeFile(file string) {
+	log.Println("Removing file:", file)
+	err := os.Remove(file)
+	if err != nil {
+		log.Println(err)
 	}
 }
 

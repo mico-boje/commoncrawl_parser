@@ -2,6 +2,7 @@ package parser
 
 import (
 	"bufio"
+	"commoncrawl_scraper/utils"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -40,24 +41,18 @@ var mimeMap = map[string]string{
 
 var mimeLimits = map[string]int64{
 	"image/jpeg":      0,
-	"image/jpg":       10, // It seems nothing is being detected as jpg, use jpeg instead
-	"image/png":       1000,
-	"application/pdf": 1000,
+	"image/jpg":       1, // It seems nothing is being detected as jpg, use jpeg instead
+	"image/png":       1,
+	"application/pdf": 1,
 	"video/mp4":       0,
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   10,
 	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         1,
 	"application/vnd.openxmlformats-officedocument.presentationml.presentation": 1,
 }
 
-type Container struct {
-	mu        sync.RWMutex
-	dataUsage map[string]float64
-}
-
-func ParseData(filePath string, mimeTypes []string, maxConcurrent int) {
+func ParseData(filePath string, mimeTypes []string, maxConcurrent int, c *utils.Container) []string {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, maxConcurrent)
-	c := Container{dataUsage: make(map[string]float64)}
 
 	file, _ := os.Open(filePath)
 	defer file.Close()
@@ -74,7 +69,7 @@ func ParseData(filePath string, mimeTypes []string, maxConcurrent int) {
 			}
 			for _, mime := range mimeTypes {
 				// check if mime exceeds limit
-				mimeTypes = checkMimeTypesLimits(mimeTypes, mime, &wg, &c)
+				mimeTypes = checkMimeTypesLimits(mimeTypes, mime, &wg, c)
 				if r.MimeDetected == mime && r.Status == "200" {
 					// check if r.Language exists and is not english
 					if r.Languages != "" && r.Languages != "eng" {
@@ -82,12 +77,11 @@ func ParseData(filePath string, mimeTypes []string, maxConcurrent int) {
 						break
 					}
 					// start a goroutine to download file. Semaphore is used to limit the number of active goroutines
-					log.Println("Language", r.Languages)
 					wg.Add(1)
 					sem <- struct{}{}
 					go func(url string, mime string, sem chan struct{}) {
 						defer wg.Done()
-						downloadFile(url, mime, sem, &c)
+						downloadFile(url, mime, sem, c)
 						<-sem
 					}(r.URL, r.MimeDetected, sem)
 					break
@@ -95,12 +89,13 @@ func ParseData(filePath string, mimeTypes []string, maxConcurrent int) {
 			}
 		}
 	}
+	return mimeTypes
 }
 
-func checkMimeTypesLimits(mimeTypes []string, mime string, wg *sync.WaitGroup, c *Container) []string {
+func checkMimeTypesLimits(mimeTypes []string, mime string, wg *sync.WaitGroup, c *utils.Container) []string {
 	// if mime exceeds limit remove it from mimeTypes
-	c.mu.RLock()
-	if c.dataUsage[mime] > float64(mimeLimits[mime]) {
+	c.Mu.RLock()
+	if c.DataUsage[mime] > float64(mimeLimits[mime]) {
 		for i, m := range mimeTypes {
 			if m == mime {
 				mimeTypes = append(mimeTypes[:i], mimeTypes[i+1:]...)
@@ -109,7 +104,7 @@ func checkMimeTypesLimits(mimeTypes []string, mime string, wg *sync.WaitGroup, c
 			}
 		}
 	}
-	c.mu.RUnlock()
+	c.Mu.RUnlock()
 	// if mimeTypes is empty, exit program
 	if len(mimeTypes) == 0 {
 		log.Println("All mime types exceeded limit. Exiting program.")
@@ -119,7 +114,7 @@ func checkMimeTypesLimits(mimeTypes []string, mime string, wg *sync.WaitGroup, c
 	return mimeTypes
 }
 
-func downloadFile(url string, mime string, sem chan struct{}, c *Container) {
+func downloadFile(url string, mime string, sem chan struct{}, c *utils.Container) {
 	log.Println("Downloading file:", url)
 
 	//HTTP GET the file
@@ -161,7 +156,7 @@ func downloadFile(url string, mime string, sem chan struct{}, c *Container) {
 		return
 	}
 
-	// write contents to file
+	//write contents to file
 	err = ioutil.WriteFile(filePath, contents, 0644)
 	if err != nil {
 		log.Println("Error writing file:", filePath, err)
@@ -169,8 +164,8 @@ func downloadFile(url string, mime string, sem chan struct{}, c *Container) {
 	}
 
 	// Update data usage
-	c.mu.Lock()
-	c.dataUsage[mime] += float64(response.ContentLength) / (1024 * 1024)
-	c.mu.Unlock()
+	c.Mu.Lock()
+	c.DataUsage[mime] += float64(response.ContentLength) / (1024 * 1024)
+	c.Mu.Unlock()
 	log.Println("Downloaded file:", filePath)
 }
