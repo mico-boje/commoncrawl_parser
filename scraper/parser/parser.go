@@ -2,11 +2,14 @@ package parser
 
 import (
 	"bufio"
+	"bytes"
 	"commoncrawl_scraper/utils"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -48,6 +51,13 @@ var mimeLimits = map[string]int64{
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   10,
 	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         1,
 	"application/vnd.openxmlformats-officedocument.presentationml.presentation": 1,
+}
+
+type Response struct {
+	Result struct {
+		Class      string  `json:"class"`
+		Percentage float64 `json:"percentage"`
+	} `json:"result"`
 }
 
 func ParseData(filePath string, mimeTypes []string, maxConcurrent int, c *utils.Container) []string {
@@ -115,6 +125,55 @@ func checkMimeTypesLimits(mimeTypes []string, mime string, wg *sync.WaitGroup, c
 	return mimeTypes
 }
 
+func contentModeration(file []byte) (Response, error) {
+	requestBody := &bytes.Buffer{}
+	writer := multipart.NewWriter(requestBody)
+
+	fileField, err := writer.CreateFormFile("image", "image")
+	if err != nil {
+		log.Println("Error creating form file: ", err)
+	}
+	_, err = io.Copy(fileField, bytes.NewReader(file))
+	if err != nil {
+		log.Println("Error copying file to form file: ", err)
+	}
+
+	// Close the multipart writer.
+	err = writer.Close()
+	if err != nil {
+		log.Println("Error closing multipart writer: ", err)
+	}
+
+	// Send the HTTP POST request to the local API.
+	request, err := http.NewRequest("POST", "http://api.docker.localhost/image/", requestBody)
+	if err != nil {
+		log.Println("Error creating request: ", err)
+	}
+
+	request.Header.Set("accept", "application/json")
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+
+	client := &http.Client{}
+	response, err := client.Do(request)
+	if err != nil {
+		log.Println("Error sending request: ", err)
+	}
+	defer response.Body.Close()
+
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		log.Println("Error reading response body:", err)
+	}
+
+	var resp Response
+	if err := json.Unmarshal(body, &resp); err != nil {
+		log.Println("Error decoding response body:", err)
+
+	}
+
+	return resp, err
+}
+
 func downloadFile(url string, mime string, sem chan struct{}, c *utils.Container) {
 	err := utils.ValidateURL(url)
 	if err != nil {
@@ -162,6 +221,19 @@ func downloadFile(url string, mime string, sem chan struct{}, c *utils.Container
 		return
 	}
 
+	// Moderate image content
+	if mime == "image/jpeg" || mime == "image/png" {
+		classification, err := contentModeration(contents)
+		if err != nil {
+			log.Println("Error running content moderation:", err)
+			return
+		}
+		if classification.Result.Class != "Neutral" || classification.Result.Class == "Neutral" && classification.Result.Percentage < 70 {
+			// Image is not safe so we discard it
+			log.Println(fmt.Sprintf("Image is not safe. Discarding. Class: %s Score: %f URL: %s", classification.Result.Class, classification.Result.Percentage, url))
+			return
+		}
+	}
 	//write contents to file
 	err = ioutil.WriteFile(filePath, contents, 0644)
 	if err != nil {

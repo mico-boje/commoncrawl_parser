@@ -17,7 +17,7 @@ import (
 
 func main() {
 	c := utils.Container{Mu: sync.RWMutex{}, DataUsage: make(map[string]float64)}
-	allowedMimes := []string{"application/pdf", "image/jpeg", "image/png"}
+	allowedMimes := []string{"image/png", "image/jpeg"}
 	var threads int
 	fmt.Println("Enter number of threads")
 	fmt.Scanln(&threads)
@@ -26,9 +26,9 @@ func main() {
 	for _, line := range collections {
 		files := get_files(line)
 		for _, file := range files {
-			file_full_path := fmt.Sprintf("s3://commoncrawl/cc-index/collections/%sindexes/%s", line, file)
-			download_file(file_full_path)
-			gzip_decompress(filepath.Join("data/indexes/", file))
+			// file_full_path := fmt.Sprintf("s3://commoncrawl/cc-index/collections/%sindexes/%s", line, file)
+			// download_file(file_full_path)
+			// gzip_decompress(filepath.Join("data/indexes/", file))
 			file = filepath.Join("data/indexes/", strings.TrimSuffix(file, filepath.Ext(file)))
 			log.Println("Parsing file:", file)
 			allowedMimes = parser.ParseData(file, allowedMimes, threads, &c)
