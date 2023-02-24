@@ -28,8 +28,7 @@ func ValidateURL(strURL string) error {
 		return fmt.Errorf("URL is an IP address: %s", strURL)
 	}
 
-	allowedTLDs := []string{".com", ".org", ".edu", ".gov", ".ml", ".uk", ".eu", ".dk", ".be", ".bank",
-		"academy", ".airforce"}
+	allowedTLDs := []string{".edu", ".com", ".gov", ".gov.uk", ".mil", ".bank", ".airforce"}
 	foundTLD := false
 	for _, tld := range allowedTLDs {
 		if strings.HasSuffix(u.Hostname(), tld) {

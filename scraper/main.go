@@ -11,24 +11,33 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 )
 
 func main() {
 	c := utils.Container{Mu: sync.RWMutex{}, DataUsage: make(map[string]float64)}
-	allowedMimes := []string{"image/png", "image/jpeg"}
+	allowedMimes := []string{"image/png", "image/jpeg", "application/pdf", "video/mp4", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.openxmlformats-officedocument.presentationml.presentation"}
 	var threads int
-	fmt.Println("Enter number of threads")
-	fmt.Scanln(&threads)
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: go run main.go <number of threads>")
+		return
+	}
+	threads, err := strconv.Atoi(os.Args[1])
+	if err != nil {
+		fmt.Println("Invalid number of threads")
+		return
+	}
+	log.Printf("Number of threads: %d\n", threads)
 
-	collections := get_collections()
+	collections := getCollections()
 	for _, line := range collections {
-		files := get_files(line)
+		files := getFiles(line)
 		for _, file := range files {
-			// file_full_path := fmt.Sprintf("s3://commoncrawl/cc-index/collections/%sindexes/%s", line, file)
-			// download_file(file_full_path)
-			// gzip_decompress(filepath.Join("data/indexes/", file))
+			file_full_path := fmt.Sprintf("s3://commoncrawl/cc-index/collections/%sindexes/%s", line, file)
+			downloadFile(file_full_path)
+			gzipDecompress(filepath.Join("data/indexes/", file))
 			file = filepath.Join("data/indexes/", strings.TrimSuffix(file, filepath.Ext(file)))
 			log.Println("Parsing file:", file)
 			allowedMimes = parser.ParseData(file, allowedMimes, threads, &c)
@@ -45,7 +54,7 @@ func removeFile(file string) {
 	}
 }
 
-func gzip_decompress(file string) {
+func gzipDecompress(file string) {
 	// Create the command
 	log.Println("Decompressing file:", file)
 	cmd := exec.Command("gzip", "-d", file)
@@ -55,7 +64,7 @@ func gzip_decompress(file string) {
 	cmd.Wait()
 }
 
-func download_file(file string) {
+func downloadFile(file string) {
 	// Create the command
 	log.Println("Downloading file:", file)
 	cmd := exec.Command("aws", "s3", "cp", file, "data/indexes/")
@@ -65,8 +74,8 @@ func download_file(file string) {
 	cmd.Wait()
 }
 
-func get_files(collection string) []string {
-	output := aws_ls(fmt.Sprintf("s3://commoncrawl/cc-index/collections/%sindexes/", collection), "4")
+func getFiles(collection string) []string {
+	output := awsLs(fmt.Sprintf("s3://commoncrawl/cc-index/collections/%sindexes/", collection), "4")
 	lines := strings.Split(output, "\n")
 	//Remove the last lines, which are empty/unwanted
 	if len(lines) > 0 {
@@ -75,8 +84,8 @@ func get_files(collection string) []string {
 	return lines
 }
 
-func get_collections() []string {
-	output := aws_ls("s3://commoncrawl/cc-index/collections/", "2")
+func getCollections() []string {
+	output := awsLs("s3://commoncrawl/cc-index/collections/", "2")
 	lines := strings.Split(output, "\n")
 	// Remove the last lines, which are empty/unwanted
 	if len(lines) > 0 {
@@ -87,7 +96,7 @@ func get_collections() []string {
 	return lines
 }
 
-func aws_ls(path string, awk_int string) string {
+func awsLs(path string, awk_int string) string {
 	// Create the command
 	cmd := exec.Command("aws", "s3", "ls", path)
 

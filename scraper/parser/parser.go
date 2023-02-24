@@ -46,11 +46,11 @@ var mimeLimits = map[string]int64{
 	"image/jpeg":      10,
 	"image/jpg":       0, // It seems nothing is being detected as jpg, use jpeg instead
 	"image/png":       10,
-	"application/pdf": 1,
-	"video/mp4":       0,
+	"application/pdf": 20,
+	"video/mp4":       20,
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   10,
 	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         1,
-	"application/vnd.openxmlformats-officedocument.presentationml.presentation": 1,
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation": 10,
 }
 
 type Response struct {
@@ -145,7 +145,7 @@ func contentModeration(file []byte) (Response, error) {
 	}
 
 	// Send the HTTP POST request to the local API.
-	request, err := http.NewRequest("POST", "http://api.docker.localhost/image/", requestBody)
+	request, err := http.NewRequest("POST", "http://localhost:8000/image/", requestBody)
 	if err != nil {
 		log.Println("Error creating request: ", err)
 	}
