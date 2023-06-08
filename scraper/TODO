@@ -1,3 +1,4 @@
 1. Remove the last index file after termination
 2. Detect inappropiate content and remove it
 3. Malicious url detection
+4. fix long file name issue (max 100 chars)

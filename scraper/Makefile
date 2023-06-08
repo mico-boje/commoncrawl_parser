@@ -2,7 +2,7 @@ build:
 	go build main.go
 
 run:
-	go run main.go
+	go run main.go 100
 
 install:
 	add-apt-repository ppa:longsleep/golang-backports

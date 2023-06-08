@@ -2,6 +2,7 @@ package main
 
 import (
 	//"commoncrawl_scraper/parser"
+	"bufio"
 	"bytes"
 	"commoncrawl_scraper/parser"
 	"commoncrawl_scraper/utils"
@@ -14,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 func main() {
@@ -69,17 +71,60 @@ func downloadFile(file string) {
 	log.Println("Downloading file:", file)
 	cmd := exec.Command("aws", "s3", "cp", file, "data/indexes/")
 
+	// Create a buffer to hold the output
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
 	// Start the command
-	cmd.Start()
-	cmd.Wait()
+	err := cmd.Start()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Wait for the command to finish
+	err = cmd.Wait()
+
+	// If there was an error and it's a SlowDown error, sleep and retry
+	if err != nil {
+		if strings.Contains(stderr.String(), "An error occurred (SlowDown) when calling the GetObject operation") {
+			for i := 0; i < 4; i++ {
+				log.Printf("Retrying download in %d seconds...\n", (i+1)*60)
+				time.Sleep(time.Duration((i+1)*60) * time.Second)
+				err = cmd.Start()
+				if err != nil {
+					log.Fatal(err)
+				}
+				err = cmd.Wait()
+				if err == nil {
+					log.Println("Download successful.")
+					return
+				}
+				if i == 3 {
+					log.Fatal("Max retries exceeded.")
+				}
+			}
+		} else {
+			log.Fatal(stderr.String())
+		}
+	}
+
+	log.Println("Download successful.")
 }
 
 func getFiles(collection string) []string {
 	output := awsLs(fmt.Sprintf("s3://commoncrawl/cc-index/collections/%sindexes/", collection), "4")
 	lines := strings.Split(output, "\n")
-	//Remove the last lines, which are empty/unwanted
+	// Remove the last lines, which are empty/unwanted
 	if len(lines) > 0 {
 		lines = lines[:len(lines)-2]
+	}
+	// Keep only lines from index 30 to len(lines)-2
+	if len(lines) > 30 {
+		lines = lines[30 : len(lines)-2]
+	} else {
+		lines = []string{} // return an empty slice if there are less than 30 lines
 	}
 	return lines
 }
@@ -91,6 +136,21 @@ func getCollections() []string {
 	if len(lines) > 0 {
 		lines = lines[:len(lines)-2]
 	}
+	// Remove lines if they are present in indexes.txt file
+	indexes, err := os.Open("indexes.txt")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer indexes.Close()
+	scanner := bufio.NewScanner(indexes)
+	for scanner.Scan() {
+		for i, line := range lines {
+			if line == scanner.Text() {
+				lines = append(lines[:i], lines[i+1:]...)
+			}
+		}
+	}
+
 	// Reverse the order of the lines so that newer scrapes are loaded first
 	sort.Sort(sort.Reverse(sort.StringSlice(lines)))
 	return lines

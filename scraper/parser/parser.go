@@ -42,15 +42,16 @@ var mimeMap = map[string]string{
 	"application/vnd.openxmlformats-officedocument.presentationml.presentation": "ppt",
 }
 
+// Limits in MB
 var mimeLimits = map[string]int64{
-	"image/jpeg":      10,
+	"image/jpeg":      12500,
 	"image/jpg":       0, // It seems nothing is being detected as jpg, use jpeg instead
-	"image/png":       10,
-	"application/pdf": 20,
-	"video/mp4":       20,
-	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   10,
-	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         1,
-	"application/vnd.openxmlformats-officedocument.presentationml.presentation": 10,
+	"image/png":       0,
+	"application/pdf": 20000,
+	"video/mp4":       5000,
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   8000,
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         2000,
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation": 2500,
 }
 
 type Response struct {
@@ -73,6 +74,7 @@ func ParseData(filePath string, mimeTypes []string, maxConcurrent int, c *utils.
 		if i := strings.Index(line, "{"); i != -1 {
 			line = line[i:]
 			var r record
+			fmt.Println(line)
 			if err := json.Unmarshal([]byte(line), &r); err != nil {
 				//fmt.Println("Error parsing JSON:", err)
 				continue
@@ -125,7 +127,7 @@ func checkMimeTypesLimits(mimeTypes []string, mime string, wg *sync.WaitGroup, c
 	return mimeTypes
 }
 
-func contentModeration(file []byte) (Response, error) {
+func contentModeration(file []byte) (*Response, error) {
 	requestBody := &bytes.Buffer{}
 	writer := multipart.NewWriter(requestBody)
 
@@ -148,6 +150,7 @@ func contentModeration(file []byte) (Response, error) {
 	request, err := http.NewRequest("POST", "http://localhost:8000/image/", requestBody)
 	if err != nil {
 		log.Println("Error creating request: ", err)
+		return nil, err
 	}
 
 	request.Header.Set("accept", "application/json")
@@ -157,21 +160,24 @@ func contentModeration(file []byte) (Response, error) {
 	response, err := client.Do(request)
 	if err != nil {
 		log.Println("Error sending request: ", err)
+		return nil, err
 	}
 	defer response.Body.Close()
 
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
 		log.Println("Error reading response body:", err)
+		return nil, err
 	}
 
 	var resp Response
 	if err := json.Unmarshal(body, &resp); err != nil {
 		log.Println("Error decoding response body:", err)
+		return nil, err
 
 	}
 
-	return resp, err
+	return &resp, err
 }
 
 func downloadFile(url string, mime string, sem chan struct{}, c *utils.Container) {
@@ -202,9 +208,16 @@ func downloadFile(url string, mime string, sem chan struct{}, c *utils.Container
 		// strip the file extension and replace it
 		strippedFileName := strings.TrimSuffix(fileName, originalFileExt)
 		fileExt := mimeMap[mime]
-		fileName = strippedFileName + fileExt
+		// check if . is in file extension
+		if strings.Contains(fileExt, ".") {
+			fileName = strippedFileName + fileExt
+		} else {
+			fileName = strippedFileName + "." + fileExt
+		}
 	}
 	filePath := filepath.Join("data", mime, fileName)
+	// strip filepath from spaces
+	filePath = strings.ReplaceAll(filePath, " ", "_")
 	folderPath := filepath.Join("data", mime)
 
 	// Create the folder if it does not exist
@@ -230,7 +243,7 @@ func downloadFile(url string, mime string, sem chan struct{}, c *utils.Container
 		}
 		if classification.Result.Class != "Neutral" || classification.Result.Class == "Neutral" && classification.Result.Percentage < 70 {
 			// Image is not safe so we discard it
-			log.Println(fmt.Sprintf("Image is not safe. Discarding. Class: %s Score: %f URL: %s", classification.Result.Class, classification.Result.Percentage, url))
+			log.Printf("Image is not safe. Discarding. Class: %s Score: %f URL: %s", classification.Result.Class, classification.Result.Percentage, url)
 			return
 		}
 	}
